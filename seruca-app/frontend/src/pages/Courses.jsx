@@ -1,64 +1,117 @@
-import { useState, useEffect } from 'react';
-import { getCourses, createCourse, deleteCourse } from '../services/api';
-import { useAuth } from '../context/AuthContext';
+import React, { useState, useEffect } from 'react';
+import Navbar from '../components/Navbar';
+import './Pages.css';
 
 export default function Courses() {
   const [courses, setCourses] = useState([]);
-  const [form, setForm] = useState({ title:'', description:'', code:'' });
   const [showForm, setShowForm] = useState(false);
-  const { user } = useAuth();
+  const [form, setForm] = useState({ title: '', code: '', description: '' });
+  const [loading, setLoading] = useState(false);
+  const token = localStorage.getItem('token');
 
-  useEffect(() => { getCourses().then(r => setCourses(r.data)).catch(()=>{}); }, []);
+  const fetchCourses = async () => {
+    try {
+      const res = await fetch('/api/courses', { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      setCourses(Array.isArray(data) ? data : []);
+    } catch { setCourses([]); }
+  };
+
+  useEffect(() => { fetchCourses(); }, []);
 
   const handleCreate = async (e) => {
     e.preventDefault();
+    setLoading(true);
     try {
-      const r = await createCourse(form);
-      setCourses([...courses, r.data]);
-      setForm({ title:'', description:'', code:'' });
+      await fetch('/api/courses', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(form),
+      });
+      setForm({ title: '', code: '', description: '' });
       setShowForm(false);
-    } catch(err) { alert('Error creating course'); }
+      fetchCourses();
+    } catch { } finally { setLoading(false); }
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('Delete this course?')) return;
-    await deleteCourse(id);
-    setCourses(courses.filter(c => c.id !== id));
+  const statusBadge = (status) => {
+    const cls = status === 'PUBLISHED' ? 'badge-published' : status === 'ARCHIVED' ? 'badge-archived' : 'badge-draft';
+    return <span className={`badge ${cls}`}>{status || 'DRAFT'}</span>;
   };
 
   return (
-    <div className="page">
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
-        <h1>Content Management — Courses</h1>
-        {(user?.role === 'ADMIN' || user?.role === 'LECTURER') &&
-          <button className="btn btn-primary" onClick={()=>setShowForm(!showForm)}>+ New Course</button>}
-      </div>
-      {showForm && (
-        <div className="card">
-          <h2>Create Course</h2>
-          <form onSubmit={handleCreate}>
-            <input placeholder="Course Title" value={form.title} onChange={e=>setForm({...form,title:e.target.value})} required />
-            <input placeholder="Course Code (e.g. CS101)" value={form.code} onChange={e=>setForm({...form,code:e.target.value})} required />
-            <textarea placeholder="Description" rows={3} value={form.description} onChange={e=>setForm({...form,description:e.target.value})} />
-            <button className="btn btn-primary" type="submit">Create</button>
-          </form>
+    <div className="page-root">
+      <Navbar />
+      <div className="page-body">
+        <div className="courses-toolbar">
+          <div>
+            <h1 className="page-heading">Course Management</h1>
+            <p className="page-sub" style={{ marginBottom: 0 }}>Content Management System</p>
+          </div>
+          <button className="btn-primary" onClick={() => setShowForm(!showForm)}>
+            <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
+              <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd"/>
+            </svg>
+            New Course
+          </button>
         </div>
-      )}
-      <div className="card">
-        <table>
-          <thead><tr><th>Code</th><th>Title</th><th>Status</th>{user?.role==='ADMIN'&&<th>Actions</th>}</tr></thead>
-          <tbody>
-            {courses.map(c => (
-              <tr key={c.id}>
-                <td>{c.code}</td>
-                <td>{c.title}</td>
-                <td><span className={`badge badge-${c.status?.toLowerCase()}`}>{c.status}</span></td>
-                {user?.role==='ADMIN' && <td><button className="btn btn-danger" onClick={()=>handleDelete(c.id)}>Delete</button></td>}
+
+        {showForm && (
+          <div className="create-panel">
+            <h3>Create New Course</h3>
+            <form onSubmit={handleCreate}>
+              <div className="field-row">
+                <div className="field">
+                  <label>Course Title</label>
+                  <input value={form.title} onChange={e => setForm({...form, title: e.target.value})}
+                    placeholder="e.g. Research Methodology" required />
+                </div>
+                <div className="field">
+                  <label>Course Code</label>
+                  <input value={form.code} onChange={e => setForm({...form, code: e.target.value})}
+                    placeholder="e.g. RSC201" required />
+                </div>
+              </div>
+              <div className="field" style={{ marginBottom: '20px' }}>
+                <label>Description</label>
+                <textarea rows={3} value={form.description}
+                  onChange={e => setForm({...form, description: e.target.value})}
+                  placeholder="Describe the course content..." />
+              </div>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <button type="submit" className="btn-primary" disabled={loading}>
+                  {loading ? 'Creating...' : 'Create Course'}
+                </button>
+                <button type="button" className="btn-secondary" onClick={() => setShowForm(false)}>Cancel</button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        <div className="data-table">
+          <table>
+            <thead>
+              <tr>
+                <th>Code</th>
+                <th>Title</th>
+                <th>Description</th>
+                <th>Status</th>
               </tr>
-            ))}
-            {courses.length === 0 && <tr><td colSpan={4} style={{textAlign:'center',color:'#888'}}>No courses yet.</td></tr>}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {courses.length === 0 ? (
+                <tr><td colSpan={4}><div className="empty-state">No courses yet. Create your first course above.</div></td></tr>
+              ) : courses.map(c => (
+                <tr key={c.id}>
+                  <td style={{ fontWeight: 600, color: '#c8841a' }}>{c.code}</td>
+                  <td>{c.title}</td>
+                  <td style={{ color: '#6b5540', fontSize: '0.85rem' }}>{c.description || '—'}</td>
+                  <td>{statusBadge(c.status)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

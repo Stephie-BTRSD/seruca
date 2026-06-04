@@ -1,57 +1,78 @@
-import { useState } from 'react';
-import { askAssistant } from '../services/api';
+import React, { useState } from 'react';
+import './Pages.css';
 
 export default function Assistant() {
-  const [question, setQuestion] = useState('');
-  const [response, setResponse] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [history, setHistory] = useState([]);
+  const token = localStorage.getItem('token');
 
-  const handleAsk = async (e) => {
+  const handleAsk = async function(e) {
     e.preventDefault();
-    if (!question.trim()) return;
+    if (!input.trim() || loading) return;
+    var question = input.trim();
+    setMessages(function(m) { return m.concat([{ role: 'user', text: question }]); });
+    setInput('');
     setLoading(true);
     try {
-      const r = await askAssistant(question);
-      const entry = { question, ...r.data };
-      setHistory([entry, ...history]);
-      setResponse(r.data);
-      setQuestion('');
-    } catch(err) { alert('Assistant error'); }
-    finally { setLoading(false); }
+      var res = await fetch('/api/assistant/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify({ question: question })
+      });
+      var data = await res.json();
+      var answer = data.answer || data.response || 'No relevant documents found for your question.';
+      setMessages(function(m) { return m.concat([{ role: 'assistant', text: answer }]); });
+    } catch (err) {
+      setMessages(function(m) { return m.concat([{ role: 'assistant', text: 'Could not process your question. Please try again.' }]); });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
-    <div className="page">
-      <h1>AI Assistant</h1>
-      <div className="card">
-        <form onSubmit={handleAsk}>
-          <textarea placeholder="Ask a question about course content..."
-            value={question} onChange={e=>setQuestion(e.target.value)} rows={3}
-            style={{resize:'vertical'}} />
-          <button className="btn btn-primary" type="submit" disabled={loading}>
-            {loading ? 'Thinking...' : 'Ask'}
-          </button>
-        </form>
-      </div>
-      {history.map((entry, i) => (
-        <div key={i} className="card">
-          <p style={{color:'#888',fontSize:13,marginBottom:8}}>Q: {entry.question}</p>
-          <p style={{marginBottom:16,lineHeight:1.6}}>{entry.answer}</p>
-          {entry.sources?.length > 0 && (
-            <div>
-              <p style={{fontSize:13,fontWeight:600,color:'#555',marginBottom:8}}>Sources:</p>
-              {entry.sources.slice(0,3).map((s,j) => (
-                <div key={j} style={{background:'#f8f9fa',padding:12,borderRadius:6,marginBottom:8}}>
-                  <p style={{fontWeight:600,fontSize:13}}>{s.title}</p>
-                  <p style={{fontSize:12,color:'#666'}}>{s.snippet}</p>
-                  <p style={{fontSize:11,color:'#999'}}>Score: {s.score?.toFixed(2)}</p>
+    <div className="page-body">
+      <h1 className="page-heading">Assistant</h1>
+      <p className="page-sub">Ask questions about course content and get answers from indexed documents</p>
+
+      <div className="chat-container">
+        <div className="chat-messages">
+          {messages.length === 0 ? (
+            <div className="chat-empty">
+              <p>Ask a question about your course documents</p>
+            </div>
+          ) : (
+            messages.map(function(m, i) {
+              return (
+                <div key={i} className={'msg ' + (m.role === 'user' ? 'msg-q' : 'msg-a')}>
+                  <div className="msg-bubble">{m.text}</div>
                 </div>
-              ))}
+              );
+            })
+          )}
+          {loading && (
+            <div className="msg msg-a">
+              <div className="msg-bubble" style={{ color: '#a08060' }}>Searching documents...</div>
             </div>
           )}
         </div>
-      ))}
+
+        <form onSubmit={handleAsk} className="chat-input-area">
+          <textarea
+            className="chat-textarea"
+            value={input}
+            onChange={function(e) { setInput(e.target.value); }}
+            placeholder="Type your question here..."
+            rows={1}
+            onKeyDown={function(e) {
+              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleAsk(e); }
+            }}
+          />
+          <button type="submit" className="chat-send" disabled={loading || !input.trim()}>
+            Send
+          </button>
+        </form>
+      </div>
     </div>
   );
 }

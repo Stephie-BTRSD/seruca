@@ -15,7 +15,8 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
 
-// ============================================================
+
+/ ============================================================
 // USER MANAGEMENT
 // ============================================================
 @RestController
@@ -23,13 +24,16 @@ import java.util.Map;
 class UserController {
 
     @Autowired private UserRepository userRepository;
+    @Autowired private PasswordEncoder passwordEncoder;
 
+    // GET all users — Admin only
     @GetMapping
     @PreAuthorize("hasRole('ADMIN')")
     public List<User> getAllUsers() {
         return userRepository.findAll();
     }
 
+    // GET single user by ID
     @GetMapping("/{id}")
     public ResponseEntity<User> getUser(@PathVariable Long id) {
         return userRepository.findById(id)
@@ -37,125 +41,71 @@ class UserController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
+    // PUT update role — Admin only
     @PutMapping("/{id}/role")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<User> updateRole(@PathVariable Long id,
-                                            @RequestBody Map<String, String> body) {
+                                           @RequestBody Map<String, String> body) {
         return userRepository.findById(id).map(user -> {
             user.setRole(User.Role.valueOf(body.get("role")));
             return ResponseEntity.ok(userRepository.save(user));
         }).orElse(ResponseEntity.notFound().build());
     }
 
+    // PUT update profile (firstName, lastName, email, password)
+    // Admin can update anyone; a user can update themselves (checked via username in token)
+    @PutMapping("/{id}/profile")
+    public ResponseEntity<?> updateProfile(@PathVariable Long id,
+                                           @RequestBody Map<String, String> body,
+                                           java.security.Principal principal) {
+        return userRepository.findById(id).map(user -> {
+            // Only allow if caller is ADMIN or is the same user
+            User caller = userRepository.findByUsername(principal.getName()).orElse(null);
+            if (caller == null) return ResponseEntity.status(403).build();
+            boolean isSelf = caller.getId().equals(id);
+            boolean isAdmin = caller.getRole() == User.Role.ADMIN;
+            if (!isSelf && !isAdmin) return ResponseEntity.status(403).build();
+
+            // Apply allowed updates
+            if (body.containsKey("firstName") && !body.get("firstName").isBlank()) {
+                user.setFirstName(body.get("firstName"));
+            }
+            if (body.containsKey("lastName") && !body.get("lastName").isBlank()) {
+                user.setLastName(body.get("lastName"));
+            }
+            if (body.containsKey("email") && !body.get("email").isBlank()) {
+                // Check email not already taken by someone else
+                userRepository.findByEmail(body.get("email")).ifPresent(existing -> {
+                    if (!existing.getId().equals(id)) {
+                        throw new RuntimeException("Email already in use");
+                    }
+                });
+                user.setEmail(body.get("email"));
+            }
+            if (body.containsKey("password") && !body.get("password").isBlank()) {
+                user.setPassword(passwordEncoder.encode(body.get("password")));
+            }
+
+            return ResponseEntity.ok(userRepository.save(user));
+        }).orElse(ResponseEntity.notFound().build());
+    }
+
+    // PUT toggle active/inactive — Admin only
+    @PutMapping("/{id}/active")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<User> toggleActive(@PathVariable Long id,
+                                             @RequestBody Map<String, Boolean> body) {
+        return userRepository.findById(id).map(user -> {
+            user.setActive(body.getOrDefault("active", true));
+            return ResponseEntity.ok(userRepository.save(user));
+        }).orElse(ResponseEntity.notFound().build());
+    }
+
+    // DELETE user — Admin only
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Void> deleteUser(@PathVariable Long id) {
         userRepository.deleteById(id);
         return ResponseEntity.noContent().build();
-    }
-}
-
-// ============================================================
-// CONTENT MANAGEMENT (COURSES)
-// ============================================================
-@RestController
-@RequestMapping("/api/courses")
-class CourseController {
-
-    @Autowired private CourseRepository courseRepository;
-
-    @GetMapping
-    public List<Course> getAllCourses() {
-        return courseRepository.findAll();
-    }
-
-    @GetMapping("/published")
-    public List<Course> getPublished() {
-        return courseRepository.findByStatus(Course.Status.PUBLISHED);
-    }
-
-    @GetMapping("/{id}")
-    public ResponseEntity<Course> getCourse(@PathVariable Long id) {
-        return courseRepository.findById(id)
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
-    }
-
-    @PostMapping
-    @PreAuthorize("hasAnyRole('ADMIN','LECTURER')")
-    public Course createCourse(@RequestBody Course course) {
-        course.setStatus(Course.Status.DRAFT);
-        return courseRepository.save(course);
-    }
-
-    @PutMapping("/{id}")
-    @PreAuthorize("hasAnyRole('ADMIN','LECTURER')")
-    public ResponseEntity<Course> updateCourse(@PathVariable Long id,
-                                                @RequestBody Course updated) {
-        return courseRepository.findById(id).map(course -> {
-            course.setTitle(updated.getTitle());
-            course.setDescription(updated.getDescription());
-            course.setStatus(updated.getStatus());
-            return ResponseEntity.ok(courseRepository.save(course));
-        }).orElse(ResponseEntity.notFound().build());
-    }
-
-    @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<Void> deleteCourse(@PathVariable Long id) {
-        courseRepository.deleteById(id);
-        return ResponseEntity.noContent().build();
-    }
-}
-
-// ============================================================
-// TAXONOMY MANAGEMENT
-// ============================================================
-@RestController
-@RequestMapping("/api/taxonomy")
-class TaxonomyController {
-
-    @Autowired private TaxonomyCategoryRepository taxonomyRepository;
-
-    @GetMapping
-    public List<TaxonomyCategory> getRootCategories() {
-        return taxonomyRepository.findByParentIsNull();
-    }
-
-    @GetMapping("/{id}/children")
-    public List<TaxonomyCategory> getChildren(@PathVariable Long id) {
-        return taxonomyRepository.findByParentId(id);
-    }
-
-    @PostMapping
-    @PreAuthorize("hasRole('ADMIN')")
-    public TaxonomyCategory createCategory(@RequestBody TaxonomyCategory category) {
-        return taxonomyRepository.save(category);
-    }
-
-    @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<Void> deleteCategory(@PathVariable Long id) {
-        taxonomyRepository.deleteById(id);
-        return ResponseEntity.noContent().build();
-    }
-}
-
-// ============================================================
-// SEARCH ENGINE
-// ============================================================
-@RestController
-@RequestMapping("/api/search")
-class SearchController {
-
-    @Autowired private DocumentRepository documentRepository;
-
-    @GetMapping
-    public ResponseEntity<List<Document>> search(@RequestParam String q) {
-        if (q == null || q.trim().isEmpty()) {
-            return ResponseEntity.badRequest().build();
-        }
-        List<Document> results = documentRepository.searchByQuery(q.trim());
-        return ResponseEntity.ok(results);
     }
 }

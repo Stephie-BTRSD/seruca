@@ -1,16 +1,23 @@
 package com.seruca.controller;
 
-import com.seruca.entity.Course;
+import com.seruca.dto.ApiResponse;
+import com.seruca.dto.CourseRequest;
+import com.seruca.dto.CourseResponse;
 import com.seruca.entity.Document;
 import com.seruca.entity.TaxonomyCategory;
 import com.seruca.entity.User;
-import com.seruca.repository.CourseRepository;
 import com.seruca.repository.DocumentRepository;
 import com.seruca.repository.TaxonomyCategoryRepository;
 import com.seruca.repository.UserRepository;
+import com.seruca.service.CourseService;
+import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
@@ -62,50 +69,116 @@ class UserController {
 @RequestMapping("/api/courses")
 class CourseController {
 
-    @Autowired private CourseRepository courseRepository;
+    @Autowired private CourseService courseService;
 
+    // ── Public / Student endpoints ─────────────────────────────────────────
+
+    /** Students (and all authenticated users) see only PUBLISHED courses with pagination + search */
     @GetMapping
-    public List<Course> getAllCourses() {
-        return courseRepository.findAll();
+    public ResponseEntity<ApiResponse<Page<CourseResponse>>> getPublished(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(required = false) String keyword) {
+        return ResponseEntity.ok(ApiResponse.ok(courseService.getPublished(page, size, keyword)));
     }
 
-    @GetMapping("/published")
-    public List<Course> getPublished() {
-        return courseRepository.findByStatus(Course.Status.PUBLISHED);
-    }
-
+    /** Any authenticated user can view a single published course */
     @GetMapping("/{id}")
-    public ResponseEntity<Course> getCourse(@PathVariable Long id) {
-        return courseRepository.findById(id)
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
+    public ResponseEntity<ApiResponse<CourseResponse>> getCourse(@PathVariable Long id,
+            @AuthenticationPrincipal UserDetails user) {
+        boolean isPrivileged = user.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN")
+                        || a.getAuthority().equals("ROLE_LECTURER"));
+        CourseResponse response = isPrivileged
+                ? courseService.getById(id)
+                : courseService.getPublishedById(id);
+        return ResponseEntity.ok(ApiResponse.ok(response));
+    }
+
+    @GetMapping("/category/{categoryId}")
+    public ResponseEntity<ApiResponse<List<CourseResponse>>> getByCategory(
+            @PathVariable Long categoryId) {
+        return ResponseEntity.ok(ApiResponse.ok(courseService.getByCategory(categoryId)));
+    }
+
+    // ── Admin / Lecturer endpoints ─────────────────────────────────────────
+
+    /** Admin sees all courses across all statuses with pagination + search */
+    @GetMapping("/manage")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<Page<CourseResponse>>> getAll(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(required = false) String keyword) {
+        return ResponseEntity.ok(ApiResponse.ok(courseService.getAll(page, size, keyword)));
+    }
+
+    /** Lecturer sees their own courses */
+    @GetMapping("/my")
+    @PreAuthorize("hasAnyRole('ADMIN','LECTURER')")
+    public ResponseEntity<ApiResponse<Page<CourseResponse>>> getMyCourses(
+            @AuthenticationPrincipal UserDetails user,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                courseService.getMyCoures(user.getUsername(), page, size)));
     }
 
     @PostMapping
     @PreAuthorize("hasAnyRole('ADMIN','LECTURER')")
-    public Course createCourse(@RequestBody Course course) {
-        course.setStatus(Course.Status.DRAFT);
-        return courseRepository.save(course);
+    public ResponseEntity<ApiResponse<CourseResponse>> createCourse(
+            @Valid @RequestBody CourseRequest req,
+            @AuthenticationPrincipal UserDetails user) {
+        CourseResponse created = courseService.create(req, user.getUsername());
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.ok("Course created successfully", created));
     }
 
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('ADMIN','LECTURER')")
-    public ResponseEntity<Course> updateCourse(@PathVariable Long id,
-                                                @RequestBody Course updated) {
-        return courseRepository.findById(id).map(course -> {
-            course.setTitle(updated.getTitle());
-            course.setDescription(updated.getDescription());
-            course.setStatus(updated.getStatus());
-            return ResponseEntity.ok(courseRepository.save(course));
-        }).orElse(ResponseEntity.notFound().build());
+    public ResponseEntity<ApiResponse<CourseResponse>> updateCourse(
+            @PathVariable Long id,
+            @Valid @RequestBody CourseRequest req,
+            @AuthenticationPrincipal UserDetails user) {
+        boolean isAdmin = user.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+        return ResponseEntity.ok(ApiResponse.ok("Course updated",
+                courseService.update(id, req, user.getUsername(), isAdmin)));
+    }
+
+    @PatchMapping("/{id}/publish")
+    @PreAuthorize("hasAnyRole('ADMIN','LECTURER')")
+    public ResponseEntity<ApiResponse<CourseResponse>> publishCourse(
+            @PathVariable Long id,
+            @AuthenticationPrincipal UserDetails user) {
+        boolean isAdmin = user.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+        return ResponseEntity.ok(ApiResponse.ok("Course published",
+                courseService.publish(id, user.getUsername(), isAdmin)));
+    }
+
+    @PatchMapping("/{id}/archive")
+    @PreAuthorize("hasAnyRole('ADMIN','LECTURER')")
+    public ResponseEntity<ApiResponse<CourseResponse>> archiveCourse(
+            @PathVariable Long id,
+            @AuthenticationPrincipal UserDetails user) {
+        boolean isAdmin = user.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+        return ResponseEntity.ok(ApiResponse.ok("Course archived",
+                courseService.archive(id, user.getUsername(), isAdmin)));
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<Void> deleteCourse(@PathVariable Long id) {
-        courseRepository.deleteById(id);
-        return ResponseEntity.noContent().build();
+    @PreAuthorize("hasAnyRole('ADMIN','LECTURER')")
+    public ResponseEntity<ApiResponse<Void>> deleteCourse(
+            @PathVariable Long id,
+            @AuthenticationPrincipal UserDetails user) {
+        boolean isAdmin = user.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+        courseService.delete(id, user.getUsername(), isAdmin);
+        return ResponseEntity.ok(ApiResponse.ok("Course deleted", null));
     }
+
 }
 
 // ============================================================

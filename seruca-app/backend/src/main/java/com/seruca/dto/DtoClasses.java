@@ -40,3 +40,4 @@ class RegisterRequestData {
     @NotBlank private String lastName;
     private User.Role role;
 }
+

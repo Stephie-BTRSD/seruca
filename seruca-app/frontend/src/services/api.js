@@ -15,10 +15,18 @@ export const getUsers = () => API.get('/users');
 export const updateUserRole = (id, role) => API.put(`/users/${id}/role`, { role });
 export const deleteUser = (id) => API.delete(`/users/${id}`);
 
-export const getCourses = () => API.get('/courses');
-export const getPublishedCourses = () => API.get('/courses/published');
+export const getCourses = (page = 0, size = 10, keyword = '') =>
+  API.get(`/courses?page=${page}&size=${size}${keyword ? `&keyword=${encodeURIComponent(keyword)}` : ''}`);
+export const getManagedCourses = (page = 0, size = 10, keyword = '') =>
+  API.get(`/courses/manage?page=${page}&size=${size}${keyword ? `&keyword=${encodeURIComponent(keyword)}` : ''}`);
+export const getMyCourses = (page = 0, size = 10) =>
+  API.get(`/courses/my?page=${page}&size=${size}`);
+export const getCourse = (id) => API.get(`/courses/${id}`);
+export const getCoursesByCategory = (categoryId) => API.get(`/courses/category/${categoryId}`);
 export const createCourse = (data) => API.post('/courses', data);
 export const updateCourse = (id, data) => API.put(`/courses/${id}`, data);
+export const publishCourse = (id) => API.patch(`/courses/${id}/publish`);
+export const archiveCourse = (id) => API.patch(`/courses/${id}/archive`);
 export const deleteCourse = (id) => API.delete(`/courses/${id}`);
 
 export const getTaxonomy = () => API.get('/taxonomy');

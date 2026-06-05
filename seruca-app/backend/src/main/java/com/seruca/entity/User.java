@@ -1,5 +1,6 @@
 package com.seruca.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
 import java.time.LocalDateTime;
@@ -22,6 +23,7 @@ public class User {
     @Column(unique = true, nullable = false)
     private String email;
 
+    @JsonIgnore          // Never serialized into any JSON response
     @Column(nullable = false)
     private String password;
 

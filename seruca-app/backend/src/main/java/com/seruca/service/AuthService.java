@@ -4,6 +4,7 @@ import com.seruca.dto.AuthRequest;
 import com.seruca.dto.AuthResponse;
 import com.seruca.dto.RegisterRequest;
 import com.seruca.entity.User;
+import com.seruca.exception.DuplicateFieldException;
 import com.seruca.repository.UserRepository;
 import com.seruca.security.JwtUtil;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,8 +25,9 @@ public class AuthService {
     @Autowired private UserDetailsService userDetailsService;
 
     public AuthResponse login(AuthRequest request) {
+        // Throws BadCredentialsException (→ 401) if wrong credentials
         authenticationManager.authenticate(
-            new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword())
+                new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword())
         );
         UserDetails userDetails = userDetailsService.loadUserByUsername(request.getUsername());
         String token = jwtUtil.generateToken(userDetails);
@@ -40,10 +42,10 @@ public class AuthService {
 
     public AuthResponse register(RegisterRequest request) {
         if (userRepository.existsByUsername(request.getUsername())) {
-            throw new RuntimeException("Username already exists");
+            throw new DuplicateFieldException("Username '" + request.getUsername() + "' is already taken");
         }
         if (userRepository.existsByEmail(request.getEmail())) {
-            throw new RuntimeException("Email already exists");
+            throw new DuplicateFieldException("An account with this email already exists");
         }
         User user = User.builder()
                 .username(request.getUsername())
@@ -51,7 +53,7 @@ public class AuthService {
                 .password(passwordEncoder.encode(request.getPassword()))
                 .firstName(request.getFirstName())
                 .lastName(request.getLastName())
-                .role(request.getRole())
+                .role(request.getRole() != null ? request.getRole() : User.Role.STUDENT)
                 .active(true)
                 .build();
         userRepository.save(user);
